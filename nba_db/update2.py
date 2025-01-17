@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 import os
 import sqlite3
+from nba_api.stats.endpoints import leaguegamelog
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +17,6 @@ nba_db.utils.get_proxies = get_proxies
 
 from nba_db.extract import (
     get_box_score_summaries,
-    get_league_game_log_from_date,
     get_play_by_play
 )
 from nba_db.utils import (
@@ -51,6 +51,29 @@ def check_latest_game():
     print(f"Latest game date: {result.iloc[0,0]}")
     return result.iloc[0,0]
 
+def get_league_game_log_from_date(start_date, proxies=None, save_to_db=True, conn=None):
+    """Modified function to use NBA API directly"""
+    print(f"Fetching games starting from {start_date}")
+    try:
+        # Get current season's games
+        gamelog = leaguegamelog.LeagueGameLog(season='2023-24')
+        df = gamelog.get_data_frames()[0]
+        print(f"Found {len(df)} games from current season")
+        
+        # Filter for games after start_date
+        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
+        df = df[df['GAME_DATE'] >= pd.to_datetime(start_date)]
+        print(f"Found {len(df)} games after {start_date}")
+        
+        if save_to_db and conn is not None and not df.empty:
+            print("Saving to database...")
+            df.to_sql('game', conn, if_exists='append', index=False)
+            
+        return df
+    except Exception as e:
+        print(f"Error fetching game log: {str(e)}")
+        return None
+
 def daily():
     try:
         print("Starting daily update process...")
@@ -76,7 +99,7 @@ def daily():
         latest_db_date = (pd.to_datetime(latest_db_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         print(f"Fetching games from: {latest_db_date}")
         
-        # get new games and add to db
+        # get new games and add to db using our modified function
         print("Getting league game log...")
         df = get_league_game_log_from_date(latest_db_date, proxies=get_proxies(), save_to_db=True, conn=conn)
         
@@ -90,7 +113,7 @@ def daily():
             conn.close()
             return 0
             
-        games = df["game_id"].unique().tolist()
+        games = df["GAME_ID"].unique().tolist()  # Note: column name might be different in API response
         print(f"Found {len(games)} new games")
         
         # get box score summaries and play by play for new games
@@ -115,3 +138,6 @@ def daily():
     except Exception as e:
         print(f"Error during update: {str(e)}")
         raise
+
+if __name__ == "__main__":
+    daily()
