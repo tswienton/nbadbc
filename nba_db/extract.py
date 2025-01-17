@@ -118,18 +118,28 @@ def get_teams(save_to_db: bool = False, conn=None) -> pd.DataFrame:
 
 
 @log(logger)
-def get_league_game_log_from_date(datefrom, proxies, save_to_db=False, conn=None):
+def get_league_game_log_from_date(datefrom, proxies=None, save_to_db=False, conn=None):
     logger.info(f"Retrieving league game log from {datefrom}...")
     dfs = []
     for season_type in season_types:
         while True:
             try:
-                df = LeagueGameLog(
-                    date_from_nullable=datefrom,
-                    proxy=np.random.choice(proxies),
-                    season_type_all_star=season_type,
-                    timeout=3,
-                ).get_data_frames()[0]
+                # Only use proxy if we have them
+                if proxies is not None and len(proxies) > 0:
+                    gamelog = LeagueGameLog(
+                        date_from_nullable=datefrom,
+                        proxy=np.random.choice(proxies),
+                        season_type_all_star=season_type,
+                        timeout=3,
+                    )
+                else:
+                    gamelog = LeagueGameLog(
+                        date_from_nullable=datefrom,
+                        season_type_all_star=season_type,
+                        timeout=3,
+                    )
+                    
+                df = gamelog.get_data_frames()[0]
                 df.columns = df.columns.to_series().apply(lambda x: x.lower())
                 df = pd.merge(
                     df,
@@ -143,10 +153,18 @@ def get_league_game_log_from_date(datefrom, proxies, save_to_db=False, conn=None
                 ]
                 df["season_type"] = season_type
                 dfs.append(df)
+                break  # If successful, break the while loop
             except RequestException:
-                continue
+                if proxies is not None and len(proxies) > 0:
+                    continue  # Only retry if we have proxies
+                else:
+                    break  # Without proxies, just move on
             except ValueError:
                 return None
+    
+    if not dfs:  # If no data was collected
+        return None
+        
     df = pd.concat(dfs, ignore_index=True)
     try:
         df = LeagueGameLogSchema.validate(df, lazy=True)
@@ -155,6 +173,7 @@ def get_league_game_log_from_date(datefrom, proxies, save_to_db=False, conn=None
         logger.error(f"Schema errors: {err.failure_cases}")
         logger.error(f"Invalid dataframe: {err.data}")
         return None
+        
     if save_to_db:
         logger.info("Saving league game log to database...")
         df.to_sql("game", conn, if_exists="append", index=False)
