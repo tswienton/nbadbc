@@ -118,6 +118,7 @@ def get_teams(save_to_db: bool = False, conn=None) -> pd.DataFrame:
 
 
 @log(logger)
+@log(logger)
 def get_league_game_log_from_date(datefrom, proxies=None, save_to_db=False, conn=None):
     logger.info(f"Retrieving league game log from {datefrom}...")
     dfs = []
@@ -136,20 +137,29 @@ def get_league_game_log_from_date(datefrom, proxies=None, save_to_db=False, conn
                     gamelog = LeagueGameLog(
                         date_from_nullable=datefrom,
                         season_type_all_star=season_type,
+                        season="2023-24",  # Add explicit season
                         timeout=3,
                     )
                 
-                # Try to get data and handle different response formats
-                try:
-                    df = gamelog.get_data_frames()[0]
-                except (KeyError, IndexError) as e:
-                    print(f"Error getting data frames: {str(e)}")
-                    print("Trying alternative data format...")
-                    raw_data = gamelog.nba_response.get_json()
-                    print(f"Raw response: {raw_data[:200]}...")  # Print first 200 chars for debugging
+                # Print raw response for debugging
+                print("Raw response structure:")
+                raw_response = gamelog.nba_response.get_dict()
+                print("Response keys:", raw_response.keys())
+                if 'resultSets' in raw_response:
+                    print("Using resultSets")
+                    results = raw_response['resultSets']
+                elif 'resultSet' in raw_response:
+                    print("Using resultSet")
+                    results = raw_response['resultSet']
+                else:
+                    print("No results found in response")
+                    print("Full response:", raw_response)
                     continue
-                    
-                # Process the data if we got it
+
+                # Get the data frames
+                df = gamelog.get_data_frames()[0]
+                
+                # Process the data
                 df.columns = df.columns.to_series().apply(lambda x: x.lower())
                 df = pd.merge(
                     df,
@@ -165,18 +175,17 @@ def get_league_game_log_from_date(datefrom, proxies=None, save_to_db=False, conn
                 dfs.append(df)
                 break
                 
-            except RequestException:
-                print("Request exception, retrying..." if proxies else "Request failed")
+            except Exception as e:
+                print(f"Error processing data: {type(e).__name__}: {str(e)}")
+                # Try to print the raw response for debugging
+                try:
+                    print("Raw response on error:", gamelog.nba_response.get_json()[:500])
+                except:
+                    print("Could not get raw response")
                 if proxies is not None and len(proxies) > 0:
                     continue
                 else:
                     break
-            except ValueError as e:
-                print(f"Value error: {str(e)}")
-                return None
-            except Exception as e:
-                print(f"Unexpected error: {str(e)}")
-                return None
                 
     if not dfs:
         print("No data collected")
@@ -202,7 +211,6 @@ def get_league_game_log_from_date(datefrom, proxies=None, save_to_db=False, conn
         logger.info("Successfully saved league game log to database. Returning data...")
         
     return df
-
 def get_league_game_log_all_helper(season, proxies):
     dfs = []
     for season_type in season_types:
