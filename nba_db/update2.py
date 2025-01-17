@@ -52,7 +52,7 @@ def check_latest_game():
     return result.iloc[0,0]
 
 def get_league_game_log_from_date(start_date, proxies=None, save_to_db=True, conn=None):
-    """Modified function to use NBA API directly"""
+    """Modified function to use NBA API directly and transform data to match DB schema"""
     print(f"Fetching games starting from {start_date}")
     try:
         # Get current season's games
@@ -65,11 +65,90 @@ def get_league_game_log_from_date(start_date, proxies=None, save_to_db=True, con
         df = df[df['GAME_DATE'] >= pd.to_datetime(start_date)]
         print(f"Found {len(df)} games after {start_date}")
         
-        if save_to_db and conn is not None and not df.empty:
-            print("Saving to database...")
-            df.to_sql('game', conn, if_exists='append', index=False)
+        # Transform data to match database schema
+        games_list = []
+        for game_id in df['GAME_ID'].unique():
+            game_data = df[df['GAME_ID'] == game_id]
             
-        return df
+            # There should be exactly 2 rows per game (home and away)
+            if len(game_data) != 2:
+                continue
+                
+            # Determine home and away teams based on MATCHUP
+            home_team = game_data[game_data['MATCHUP'].str.contains(' vs. ')].iloc[0]
+            away_team = game_data[game_data['MATCHUP'].str.contains(' @ ')].iloc[0]
+            
+            # Create a row matching our database schema
+            game_row = {
+                'season_id': home_team['SEASON_ID'],
+                'team_id_home': str(home_team['TEAM_ID']),
+                'team_abbreviation_home': home_team['TEAM_ABBREVIATION'],
+                'team_name_home': home_team['TEAM_NAME'],
+                'game_id': game_id,
+                'game_date': home_team['GAME_DATE'],
+                'matchup_home': home_team['MATCHUP'],
+                'wl_home': home_team['WL'],
+                'min': home_team['MIN'],
+                'fgm_home': home_team['FGM'],
+                'fga_home': home_team['FGA'],
+                'fg_pct_home': home_team['FG_PCT'],
+                'fg3m_home': home_team['FG3M'],
+                'fg3a_home': home_team['FG3A'],
+                'fg3_pct_home': home_team['FG3_PCT'],
+                'ftm_home': home_team['FTM'],
+                'fta_home': home_team['FTA'],
+                'ft_pct_home': home_team['FT_PCT'],
+                'oreb_home': home_team['OREB'],
+                'dreb_home': home_team['DREB'],
+                'reb_home': home_team['REB'],
+                'ast_home': home_team['AST'],
+                'stl_home': home_team['STL'],
+                'blk_home': home_team['BLK'],
+                'tov_home': home_team['TOV'],
+                'pf_home': home_team['PF'],
+                'pts_home': home_team['PTS'],
+                'plus_minus_home': home_team['PLUS_MINUS'],
+                'video_available_home': home_team['VIDEO_AVAILABLE'],
+                
+                'team_id_away': str(away_team['TEAM_ID']),
+                'team_abbreviation_away': away_team['TEAM_ABBREVIATION'],
+                'team_name_away': away_team['TEAM_NAME'],
+                'matchup_away': away_team['MATCHUP'],
+                'wl_away': away_team['WL'],
+                'fgm_away': away_team['FGM'],
+                'fga_away': away_team['FGA'],
+                'fg_pct_away': away_team['FG_PCT'],
+                'fg3m_away': away_team['FG3M'],
+                'fg3a_away': away_team['FG3A'],
+                'fg3_pct_away': away_team['FG3_PCT'],
+                'ftm_away': away_team['FTM'],
+                'fta_away': away_team['FTA'],
+                'ft_pct_away': away_team['FT_PCT'],
+                'oreb_away': away_team['OREB'],
+                'dreb_away': away_team['DREB'],
+                'reb_away': away_team['REB'],
+                'ast_away': away_team['AST'],
+                'stl_away': away_team['STL'],
+                'blk_away': away_team['BLK'],
+                'tov_away': away_team['TOV'],
+                'pf_away': away_team['PF'],
+                'pts_away': away_team['PTS'],
+                'plus_minus_away': away_team['PLUS_MINUS'],
+                'video_available_away': away_team['VIDEO_AVAILABLE'],
+                
+                'season_type': 'Regular Season'  # Add logic for playoffs if needed
+            }
+            games_list.append(game_row)
+        
+        # Convert to DataFrame
+        transformed_df = pd.DataFrame(games_list)
+        print(f"Transformed {len(transformed_df)} games to match database schema")
+        
+        if save_to_db and conn is not None and not transformed_df.empty:
+            print("Saving to database...")
+            transformed_df.to_sql('game', conn, if_exists='append', index=False)
+            
+        return transformed_df
     except Exception as e:
         print(f"Error fetching game log: {str(e)}")
         return None
