@@ -27,15 +27,15 @@ from nba_db.utils import (
 )
 
 def check_and_download_db():
-    logger.info("Checking for database...")
+    print("Checking for database...")
     if not os.path.exists("nba-db/nba.sqlite"):
-        logger.info("Database not found. Downloading...")
+        print("Database not found. Downloading...")
         download_db()
     else:
-        logger.info("Database found.")
+        print("Database found.")
 
 def check_db_connection():
-    check_and_download_db()  # Make sure DB exists first
+    check_and_download_db()
     try:
         conn = get_db_conn()
         result = pd.read_sql("SELECT COUNT(*) FROM game", conn)
@@ -46,70 +46,72 @@ def check_db_connection():
         raise
 
 def check_latest_game():
-    conn = check_db_connection()  # This will ensure DB exists and is connected
+    conn = check_db_connection()
     result = pd.read_sql("SELECT MAX(GAME_DATE) FROM game", conn)
     print(f"Latest game date: {result.iloc[0,0]}")
     return result.iloc[0,0]
 
 def daily():
     try:
+        print("Starting daily update process...")
+        
         # First ensure we have the database
         check_and_download_db()
         
         # get db connection
-        logger.info("Getting DB connection...")
+        print("Getting DB connection...")
         conn = get_db_conn()
         
         # get latest date in db and add a day
-        logger.info("Getting latest date from DB...")
+        print("Getting latest date from DB...")
         latest_db_date = pd.read_sql("SELECT MAX(GAME_DATE) FROM game", conn).iloc[0, 0]
-        logger.info(f"Latest date in DB: {latest_db_date}")
+        print(f"Latest date in DB: {latest_db_date}")
         
         # check if today is a game day
         if pd.to_datetime(latest_db_date) >= pd.to_datetime(datetime.today().date()):
-            logger.info("No new games today. Exiting...")
+            print("No new games today. Exiting...")
             return
             
         # add a day to latest db date
         latest_db_date = (pd.to_datetime(latest_db_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-        logger.info(f"Fetching games from: {latest_db_date}")
+        print(f"Fetching games from: {latest_db_date}")
         
         # get new games and add to db
-        logger.info("Getting league game log...")
+        print("Getting league game log...")
         df = get_league_game_log_from_date(latest_db_date, proxies=get_proxies(), save_to_db=True, conn=conn)
         
         if df is None:
-            logger.error("No data returned from get_league_game_log_from_date")
+            print("No data returned from get_league_game_log_from_date")
             conn.close()
             return
             
         if len(df) == 0:
-            logger.info("No new games found")
+            print("No new games found")
             conn.close()
             return 0
             
         games = df["game_id"].unique().tolist()
-        logger.info(f"Found {len(games)} new games")
+        print(f"Found {len(games)} new games")
         
         # get box score summaries and play by play for new games
-        logger.info("Getting box scores...")
+        print("Getting box scores...")
         get_box_score_summaries(games, proxies=get_proxies(), save_to_db=True, conn=conn)
-        logger.info("Getting play by play...")
+        print("Getting play by play...")
         get_play_by_play(games, proxies=get_proxies(), save_to_db=True, conn=conn)
         
         # dump db tables to csv
-        logger.info("Dumping DB to CSV...")
+        print("Dumping DB to CSV...")
         dump_db(conn)
         
         # upload new db version to Kaggle
         version_message = f"Daily update: {pd.to_datetime('today').strftime('%Y-%m-%d')}"
-        logger.info("Uploading new DB version...")
+        print("Uploading new DB version...")
         upload_new_db_version(version_message)
         
         # close db connection
         conn.close()
-        logger.info("Update completed successfully")
+        print("Update completed successfully")
         
     except Exception as e:
-        logger.error(f"Error during update: {str(e)}")
+        print(f"Error during update: {str(e)}")
         raise
