@@ -65,7 +65,36 @@ def daily():
         print("Getting DB connection...")
         conn = get_db_conn()
         
-        # Rest of the code up to box score processing stays the same...
+        # get latest date in db and add a day
+        print("Getting latest date from DB...")
+        latest_db_date = pd.read_sql("SELECT MAX(GAME_DATE) FROM game", conn).iloc[0, 0]
+        print(f"Latest date in DB: {latest_db_date}")
+        
+        # check if today is a game day
+        if pd.to_datetime(latest_db_date) >= pd.to_datetime(datetime.today().date()):
+            print("No new games today. Exiting...")
+            return
+            
+        # add a day to latest db date
+        latest_db_date = (pd.to_datetime(latest_db_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        print(f"Fetching games from: {latest_db_date}")
+        
+        # get new games and add to db
+        print("Getting league game log...")
+        df = get_league_game_log_from_date(latest_db_date, proxies=get_proxies(), save_to_db=True, conn=conn)
+        
+        if df is None:
+            print("No data returned from get_league_game_log_from_date")
+            conn.close()
+            return
+            
+        if len(df) == 0:
+            print("No new games found")
+            conn.close()
+            return 0
+            
+        games = df["game_id"].unique().tolist()
+        print(f"Found {len(games)} new games")
         
         # Modified box score and play by play section
         print("Getting box scores...")
